@@ -1,0 +1,12 @@
+runtime: nodejs
+instance_class: F1
+env: standard
+
+env_variables:
+  CLOUD_SQL_CONNECTION_NAME: "your-cloud-sql-connection-name"
+  DB_USER: "your-db-user"
+  DB_PASS: "your-db-password"
+
+handlers:
+- url: /.*
+  script: auto
