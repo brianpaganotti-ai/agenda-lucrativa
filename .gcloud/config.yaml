@@ -1,0 +1,9 @@
+# Google Cloud Configuration
+
+# Configuration options
+
+[core]
+project = your-project-id
+account = your-email@example.com
+
+# Additional configurations can be added below
