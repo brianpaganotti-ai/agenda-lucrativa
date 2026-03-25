@@ -1,0 +1,20 @@
+# Python gitignore
+
+# Virtual environments
+venv/  
+
+# Python bytecode
+__pycache__/  
+*.pyc  
+
+# Environment variables
+.env  
+
+# macOS files
+.DS_Store  
+
+# Instance folder
+instance/  
+
+# Key files
+key*
