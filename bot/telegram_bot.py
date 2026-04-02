@@ -275,7 +275,7 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         proc = subprocess.Popen(
-            ["opencode", "run", "-p", f"/opensquad run {squad_name}"],
+            ["opencode", "run", f"/opensquad run {squad_name}"],
             cwd=str(NEXUS_DIR),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
