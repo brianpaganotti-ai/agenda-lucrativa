@@ -92,6 +92,10 @@ def get_allowed_user_id() -> Optional[int]:
 # Helpers
 # ---------------------------------------------------------------------------
 ALLOWED_USER_ID = None  # populado no startup
+GEMINI_API_KEY: str = ""  # carregado no startup via Secret Manager
+
+# Modelo Gemini padrão para o OpenCode
+OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "google/gemini-2.0-flash")
 
 
 def is_authorized(update: Update) -> bool:
@@ -274,13 +278,25 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
     try:
+        # Monta env com Gemini API key para o OpenCode
+        proc_env = os.environ.copy()
+        if GEMINI_API_KEY:
+            proc_env["GOOGLE_GENERATIVE_AI_API_KEY"] = GEMINI_API_KEY
+            proc_env["GEMINI_API_KEY"] = GEMINI_API_KEY
+
+        # opencode run [message..] — mensagem como palavras separadas
+        # -m google/gemini-2.0-flash — modelo explícito
+        prompt_words = f"/opensquad run {squad_name}".split()
+        cmd = ["opencode", "run", "-m", OPENCODE_MODEL] + prompt_words
+
         proc = subprocess.Popen(
-            ["opencode", "run", f"/opensquad run {squad_name}"],
+            cmd,
             cwd=str(NEXUS_DIR),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=proc_env,
         )
         running_squads[squad_name] = proc
 
@@ -445,10 +461,18 @@ async def checkpoint_polling(context: ContextTypes.DEFAULT_TYPE) -> None:
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
-    global ALLOWED_USER_ID
+    global ALLOWED_USER_ID, GEMINI_API_KEY
 
     token = get_bot_token()
     ALLOWED_USER_ID = get_allowed_user_id()
+
+    # Carrega Gemini API key para injetar no opencode
+    try:
+        GEMINI_API_KEY = load_secret("gemini-api-key")
+        logger.info("Gemini API key carregada do Secret Manager.")
+    except Exception as e:
+        GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+        logger.warning("Gemini key não carregada do SM, usando env var: %s", e)
 
     if ALLOWED_USER_ID:
         logger.info("Bot restrito ao usuário ID: %s", ALLOWED_USER_ID)
