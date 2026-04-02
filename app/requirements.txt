@@ -3,3 +3,4 @@ gunicorn
 google-cloud-firestore
 requests
 openpyxl
+google-cloud-secret-manager
