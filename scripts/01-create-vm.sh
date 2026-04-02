@@ -53,9 +53,20 @@ if ! gcloud iam service-accounts describe "$SA_EMAIL" --project="$PROJECT_ID" &>
     --display-name="Agenda Lucrativa / Nexus SA" \
     --project="$PROJECT_ID"
   log "Service account criada."
+  info "Aguardando propagação da SA no GCP (15s)..."
+  sleep 15
 else
   log "Service account já existe."
 fi
+
+# Aguarda até SA estar disponível (retry até 60s)
+for i in $(seq 1 12); do
+  if gcloud iam service-accounts describe "$SA_EMAIL" --project="$PROJECT_ID" &>/dev/null; then
+    break
+  fi
+  info "SA ainda propagando... aguardando 5s ($i/12)"
+  sleep 5
+done
 
 for role in \
   roles/datastore.user \
