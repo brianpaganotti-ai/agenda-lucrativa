@@ -9,7 +9,7 @@
 | 1 | Infraestrutura & Scripts VM | ✅ CONCLUÍDO | `interval-1-infra` |
 | 2 | Telegram Bot (OpenClaw) | ✅ CONCLUÍDO | `interval-2-bot` |
 | 3 | OpenSquad Squads & Skills | ✅ CONCLUÍDO | `interval-3-squads` |
-| 4 | Testes & Hardening | ⏳ PENDENTE | — |
+| 4 | Testes & Hardening | ✅ CONCLUÍDO | `interval-4-hardening` |
 
 ## Arquivos Criados (Intervalo 1)
 
@@ -47,15 +47,47 @@
 
 Criar os seguintes arquivos:
 
-### O que fazer no Intervalo 4
+## Arquivos Criados (Intervalo 4)
 
-1. Rodar `scripts/01-create-vm.sh` para criar a VM `agenda-nexus`
-2. Aguardar provisionamento automático (02-provision-vm.sh roda no boot)
-3. SSH na VM e verificar serviços: `systemctl status openclaw-bot agenda-api`
-4. Rodar `scripts/04-setup-secrets.sh` para popular os secrets reais
-5. Testar: enviar `/start` no Telegram e depois `/run prospeccao`
-6. Instalar Cloud Ops Agent para logging + monitoring
-7. Criar uptime check no Cloud Monitoring para `:8080/health`
+- `scripts/05-validation.sh` — valida VM, serviços, secrets, API, OpenSquad e token Telegram
+- `scripts/06-monitoring.sh` — instala Ops Agent, configura logs, uptime check, alertas e backup diário
+
+## 🚀 COMO EXECUTAR — Sequência completa no terminal
+
+```bash
+# Pré-requisito: gcloud autenticado com seu projeto
+gcloud config set project project-87c1c65b-10d3-40d5-999
+
+# PASSO 1: Criar a VM (deleta nexus-v2 e instance-20260326, cria agenda-nexus)
+bash scripts/01-create-vm.sh
+# → Aguardar ~5 minutos para o boot e provisionamento automático
+
+# PASSO 2: Configurar os secrets com seus valores reais
+bash scripts/04-setup-secrets.sh
+# → Preencher: Telegram token, seu ID, Gemini API key, etc.
+
+# PASSO 3: Fazer o primeiro deploy do código na VM
+bash scripts/03-deploy.sh
+
+# PASSO 4: Validar que tudo está funcionando
+bash scripts/05-validation.sh
+
+# PASSO 5: Configurar monitoring e backup (opcional mas recomendado)
+bash scripts/06-monitoring.sh
+```
+
+## Secrets configurados (não commitar — Secret Manager apenas)
+
+| Secret | Valor | Status |
+|--------|-------|--------|
+| telegram-bot-token | Bot @Nexusorquestradorbot | ✅ Aguardando `04-setup-secrets.sh` |
+| telegram-allowed-user-id | ID 6809811401 | ✅ Aguardando `04-setup-secrets.sh` |
+| gemini-api-key | Verificar formato (⚠️ ver nota abaixo) | ⚠️ Pendente |
+| whatsapp-token | — | ⏳ Opcional |
+
+> ⚠️ **Atenção Gemini API Key:** O formato fornecido (`AQ.ab8...`) é incomum.
+> Chaves do Google AI Studio começam com `AIzaSy...`.
+> Verifique em: https://aistudio.google.com/apikey
 
 ### `squads/prospeccao.yaml`
 Squad de prospecção de leads sem checkpoint — roda automaticamente via scheduler.
