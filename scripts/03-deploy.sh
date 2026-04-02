@@ -35,28 +35,25 @@ fi
 
 info "Sincronizando código..."
 
-# Arquivos a sincronizar (excluindo arquivos sensíveis e gerados)
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
-  -- "cd $NEXUS_DIR && git fetch origin $BRANCH && git reset --hard origin/$BRANCH"
+  -- "sudo git config --global --add safe.directory $NEXUS_DIR && sudo git -C $NEXUS_DIR fetch origin $BRANCH && sudo git -C $NEXUS_DIR reset --hard origin/$BRANCH"
 
 log "Código atualizado via git."
 
 info "Reinstalando dependências Python..."
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
-  -- "cd $NEXUS_DIR && venv/bin/pip install --quiet -r app/requirements.txt $([ -f bot/requirements.txt ] && echo '-r bot/requirements.txt' || echo '')"
+  -- "sudo $NEXUS_DIR/venv/bin/pip install --quiet -r $NEXUS_DIR/app/requirements.txt -r $NEXUS_DIR/bot/requirements.txt"
 
 info "Reinstalando serviços systemd..."
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" -- "
-  if [ -d $NEXUS_DIR/systemd ]; then
-    sudo cp $NEXUS_DIR/systemd/*.service /etc/systemd/system/
-    sudo systemctl daemon-reload
-    echo 'Serviços atualizados.'
-  fi
+  sudo cp $NEXUS_DIR/systemd/*.service /etc/systemd/system/ && \
+  sudo systemctl daemon-reload && \
+  echo 'Serviços systemd atualizados.'
 "
 
 info "Reiniciando serviços..."
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
-  -- "sudo systemctl restart agenda-api 2>/dev/null || true && sudo systemctl restart openclaw-bot 2>/dev/null || true"
+  -- "sudo systemctl restart agenda-api && sudo systemctl restart openclaw-bot && echo 'Serviços reiniciados.'"
 
 log "Serviços reiniciados."
 
