@@ -1,20 +1,22 @@
-# Python gitignore
+# Python
+venv/
+__pycache__/
+*.pyc
+instance/
+.env
 
-# Virtual environments
-venv/  
+# Node
+node_modules/
+.npm/
 
-# Python bytecode
-__pycache__/  
-*.pyc  
+# OpenSquad (runtime — nunca commitar)
+_opensquad/
+squads/output/
 
-# Environment variables
-.env  
-
-# macOS files
-.DS_Store  
-
-# Instance folder
-instance/  
-
-# Key files
+# Credenciais GCP (nunca commitar)
+*.json
 key*
+.gcloud/agenda-lucrativa-key.json
+
+# macOS
+.DS_Store
