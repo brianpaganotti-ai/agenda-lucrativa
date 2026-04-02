@@ -23,7 +23,7 @@ Environment=GOOGLE_CLOUD_PROJECT=project-87c1c65b-10d3-40d5-999
 Environment=GOOGLE_CLOUD_REGION=us-central1
 # Vertex AI — usa Application Default Credentials da service account da VM
 # OPENCODE_MODEL pode ser sobrescrito se necessário:
-Environment=OPENCODE_MODEL=google-vertex/gemini-2.0-flash
+Environment=OPENCODE_MODEL=google-vertex/gemini-2.0-flash-001
 
 [Install]
 WantedBy=multi-user.target
