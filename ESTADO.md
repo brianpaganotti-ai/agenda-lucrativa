@@ -8,7 +8,7 @@
 |-----------|-----------|--------|--------|
 | 1 | Infraestrutura & Scripts VM | ✅ CONCLUÍDO | `interval-1-infra` |
 | 2 | Telegram Bot (OpenClaw) | ✅ CONCLUÍDO | `interval-2-bot` |
-| 3 | OpenSquad Squads & Skills | ⏳ PENDENTE | — |
+| 3 | OpenSquad Squads & Skills | ✅ CONCLUÍDO | `interval-3-squads` |
 | 4 | Testes & Hardening | ⏳ PENDENTE | — |
 
 ## Arquivos Criados (Intervalo 1)
@@ -35,9 +35,27 @@
 - `Dockerfile` (raiz), `app.yaml`, `app/Dockerfile` — dead code sem containers
 - `scripts/setup_scheduler_agenda.sh`, `scripts/agenda_reconcile_v2.sh`, `scripts/update_agenda_v8.sh` — templates irrelevantes
 
-## Próximo Intervalo (3) — OpenSquad Squads & Skills
+## Arquivos Criados (Intervalo 3)
+
+- `squads/prospeccao.yaml` — squad de prospecção sem checkpoint (5 agentes: buscador, qualificador, redator, disparador, notificador)
+- `squads/conteudo-instagram.yaml` — squad com checkpoint (aprovação via Telegram antes de salvar)
+- `skills/telegram-notify.js` — skill OpenSquad: envia mensagem/documento para Telegram
+- `skills/whatsapp-send.js` — skill OpenSquad: envia WhatsApp individual ou em lote (Meta API v20)
+- `.gitignore` — atualizado com logs/, conteudo/, /tmp outputs
+
+## Próximo Intervalo (4) — Testes & Hardening ⚠️ CHAMAR USUÁRIO
 
 Criar os seguintes arquivos:
+
+### O que fazer no Intervalo 4
+
+1. Rodar `scripts/01-create-vm.sh` para criar a VM `agenda-nexus`
+2. Aguardar provisionamento automático (02-provision-vm.sh roda no boot)
+3. SSH na VM e verificar serviços: `systemctl status openclaw-bot agenda-api`
+4. Rodar `scripts/04-setup-secrets.sh` para popular os secrets reais
+5. Testar: enviar `/start` no Telegram e depois `/run prospeccao`
+6. Instalar Cloud Ops Agent para logging + monitoring
+7. Criar uptime check no Cloud Monitoring para `:8080/health`
 
 ### `squads/prospeccao.yaml`
 Squad de prospecção de leads sem checkpoint — roda automaticamente via scheduler.

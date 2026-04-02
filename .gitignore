@@ -18,5 +18,17 @@ squads/output/
 key*
 .gcloud/agenda-lucrativa-key.json
 
+# Logs e outputs gerados na VM
+logs/
+*.log
+/tmp/leads_*.json
+/tmp/mensagens_*.json
+/tmp/relatorio_*.json
+/tmp/conteudo_*.json
+/tmp/tendencias_*.json
+
+# Conteúdo gerado pelos squads (local)
+conteudo/
+
 # macOS
 .DS_Store
