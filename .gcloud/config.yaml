@@ -1,9 +1,16 @@
-# Google Cloud Configuration
-
-# Configuration options
+# Google Cloud Configuration — Agenda Lucrativa
+# Gerado por scripts/setup_gcloud_workspace.sh
 
 [core]
-project = your-project-id
-account = your-email@example.com
+project = project-87c1c65b-10d3-40d5-999
+account = seu-email@example.com
 
-# Additional configurations can be added below
+[compute]
+region = us-central1
+
+[run]
+region = us-central1
+
+# Service Account
+# SA_EMAIL = agenda-lucrativa-sa@project-87c1c65b-10d3-40d5-999.iam.gserviceaccount.com
+# KEY_FILE  = .gcloud/agenda-lucrativa-key.json  (NÃO commitar no git)
