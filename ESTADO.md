@@ -10,108 +10,141 @@
 | 2 | Telegram Bot (OpenClaw) | ✅ CONCLUÍDO | `interval-2-bot` |
 | 3 | OpenSquad Squads & Skills | ✅ CONCLUÍDO | `interval-3-squads` |
 | 4 | Testes & Hardening | ✅ CONCLUÍDO | `interval-4-hardening` |
+| Pré-A | Segurança e confiabilidade | ✅ CONCLUÍDO | `b8e3e5e` |
+| A | Providers + SkillLoader | ✅ CONCLUÍDO | `b8e3e5e` |
+| B | 7 Skills Python | ✅ CONCLUÍDO | `77db9e9` |
+| C | Orchestrator + 7 comandos Telegram | ✅ CONCLUÍDO | `ebc9eea` |
+| **D** | **Deploy + Testes end-to-end** | **⏳ PENDENTE** | — |
 
-## Arquivos Criados (Intervalo 1)
+---
 
-- `scripts/01-create-vm.sh` — cria VM agenda-nexus, APIs, SA, firewall, secrets
-- `scripts/02-provision-vm.sh` — startup script da VM (Node20, OpenCode, Playwright, OpenSquad)
-- `scripts/03-deploy.sh` — atualiza código na VM via git + reinicia serviços
+## Fase 2 — Skill System + Multi-Model Orchestrator
 
-## Arquivos Criados (Intervalo 2)
+### O que foi implementado (branch `claude/gcloud-workspace-setup-4Sm2I`)
 
-- `bot/telegram_bot.py` — bot OpenClaw completo (python-telegram-bot async)
-  - Comandos: `/start`, `/squads`, `/run`, `/status`, `/logs`, `/approve`, `/reject`, `/stop`
-  - Carrega secrets do Secret Manager (telegram-bot-token, gemini-api-key)
-  - Streaming de output dos squads para o Telegram
-  - Polling de checkpoints a cada 10s com botões inline Aprovar/Rejeitar
-- `bot/checkpoint_bridge.py` — monitora `_opensquad/checkpoints/` e notifica
-- `bot/requirements.txt` — python-telegram-bot[job-queue], google-cloud-secret-manager, firestore
-- `systemd/openclaw-bot.service` — serviço systemd do bot (Restart=always)
-- `systemd/agenda-api.service` — serviço systemd do Flask/gunicorn na porta 8080
-- `scripts/04-setup-secrets.sh` — popula secrets interativamente (Telegram, Gemini, WhatsApp, Serper)
+**Pré-Intervalo A (segurança e confiabilidade):**
+- `systemd/openclaw-bot.service` — usuário `nexus` (não root), `ReadWritePaths=/opt/nexus`
+- `scripts/02-provision-vm.sh` — cria usuário `nexus` antes dos diretórios
+- `config/opencode.json` — apenas `read`/`list` auto-aprovados
+- `bot/executor.py` — `run_id` por execução, log em `logs/{squad}/{run_id}.log`, sem dados simulados
+- `bot/telegram_bot.py` — `squad_log_path()` lê log mais recente
 
-## Arquivos Deletados
+**Intervalo A:**
+- `.claude/agents/explorer.md` — subagente Haiku para leitura de arquivos
+- `bot/providers.py` — `GeminiProvider` (Vertex AI ADC) + `ClaudeProvider` (Anthropic API)
+- `config/providers.json` — gemini enabled, claude disabled por padrão
+- `bot/skill_loader.py` — `SkillLoader.execute(skill, context, provider)`
 
-- `Dockerfile` (raiz), `app.yaml`, `app/Dockerfile` — dead code sem containers
-- `scripts/setup_scheduler_agenda.sh`, `scripts/agenda_reconcile_v2.sh`, `scripts/update_agenda_v8.sh` — templates irrelevantes
+**Intervalo B — 7 Skills:**
+| Skill | Tier | Descrição |
+|-------|------|-----------|
+| `brainstorm` | FAST | Ideias estruturadas `[{titulo, desenvolvimento, aplicacao}]` |
+| `write_plan` | POWERFUL | Plano markdown (Objetivo/Etapas/Métricas/Próximo Passo) |
+| `executing_plans` | POWERFUL+FAST | Executa plano .md passo a passo, persiste `ESTADO.md` |
+| `autoresearch` | FAST+POWERFUL | Serper busca (FAST) → síntese estruturada (POWERFUL) |
+| `frontend_design` | POWERFUL | HTML → PNG via Playwright (fallback HTML) |
+| `squad_runner` | POWERFUL | Wraps SquadExecutor, `/run` preservado 100% |
+| `custom` | FAST | Executa skills YAML de `skills/custom/` |
 
-## Arquivos Criados (Intervalo 3)
+**Intervalo C:**
+- `bot/orchestrator.py` — Gemini FAST classifica intenção → skill + parâmetros
+- `bot/telegram_bot.py` — 7 novos comandos: `/skill`, `/ask`, `/design`, `/research`, `/providers`, `/skills`, `/usage`
+- `_TrackingProvider` — rastreia FAST vs POWERFUL por sessão
+- `bot/requirements.txt` — adicionado `anthropic>=0.45.0`
+- `scripts/04-setup-secrets.sh` — adicionado `claude-api-key`
+- `systemd/openclaw-bot.service` — adicionado `DEFAULT_PROVIDER=gemini`
 
-- `squads/prospeccao.yaml` — squad de prospecção sem checkpoint (5 agentes: buscador, qualificador, redator, disparador, notificador)
-- `squads/conteudo-instagram.yaml` — squad com checkpoint (aprovação via Telegram antes de salvar)
-- `skills/telegram-notify.js` — skill OpenSquad: envia mensagem/documento para Telegram
-- `skills/whatsapp-send.js` — skill OpenSquad: envia WhatsApp individual ou em lote (Meta API v20)
-- `.gitignore` — atualizado com logs/, conteudo/, /tmp outputs
+---
 
-## Próximo Intervalo (4) — Testes & Hardening ⚠️ CHAMAR USUÁRIO
+## Intervalo D — Deploy + Testes (PRÓXIMO PASSO)
 
-Criar os seguintes arquivos:
-
-## Arquivos Criados (Intervalo 4)
-
-- `scripts/05-validation.sh` — valida VM, serviços, secrets, API, OpenSquad e token Telegram
-- `scripts/06-monitoring.sh` — instala Ops Agent, configura logs, uptime check, alertas e backup diário
-
-## 🚀 COMO EXECUTAR — Sequência completa no terminal
+### 1. Merge/deploy na VM
 
 ```bash
-# Pré-requisito: gcloud autenticado com seu projeto
-gcloud config set project project-87c1c65b-10d3-40d5-999
+# Na VM (ou via gcloud ssh):
+cd /opt/nexus
+git fetch origin claude/gcloud-workspace-setup-4Sm2I
+git checkout claude/gcloud-workspace-setup-4Sm2I
+git pull
 
-# PASSO 1: Criar a VM (deleta nexus-v2 e instance-20260326, cria agenda-nexus)
-bash scripts/01-create-vm.sh
-# → Aguardar ~5 minutos para o boot e provisionamento automático
+# Instalar nova dependência
+/opt/nexus/venv/bin/pip install anthropic>=0.45.0
 
-# PASSO 2: Configurar os secrets com seus valores reais
+# Recarregar systemd e reiniciar bot
+sudo systemctl daemon-reload
+sudo systemctl restart openclaw-bot
+sudo systemctl status openclaw-bot
+```
+
+### 2. Verificação rápida de logs
+
+```bash
+sudo journalctl -u openclaw-bot -n 50 --no-pager
+# Esperar ver: "Provider padrão: gemini" e "SkillLoader inicializado: 7 skills"
+```
+
+### 3. Checklist de testes no Telegram
+
+```
+/providers          → Deve mostrar gemini ✅ enabled, claude ❌ disabled
+/skills             → Deve listar 7 skills com ⚡/🧠
+/skill brainstorm topic="prospecção açaí"    → 5-10 ideias (FAST)
+/skill write-plan goal="campanha estéticas" audience="salões SP"   → plano markdown (POWERFUL)
+/research salões SP pico verão              → relatório FAST+POWERFUL
+/ask me ajude a criar plano de captação     → FAST roteia → write_plan POWERFUL
+/usage                                      → distribuição FAST vs POWERFUL
+/run prospeccao                             → funciona igual (preservado 100%)
+```
+
+### 4. Ativar Claude (quando API key disponível)
+
+```bash
+# 1. Adicionar a key ao Secret Manager:
 bash scripts/04-setup-secrets.sh
-# → Preencher: Telegram token, seu ID, Gemini API key, etc.
+# → preencher apenas o campo "Claude API Key"
 
-# PASSO 3: Fazer o primeiro deploy do código na VM
-bash scripts/03-deploy.sh
+# 2. Editar config/providers.json na VM:
+#    "claude": { "enabled": true, ... }
 
-# PASSO 4: Validar que tudo está funcionando
-bash scripts/05-validation.sh
+# 3. Reiniciar o bot:
+sudo systemctl restart openclaw-bot
 
-# PASSO 5: Configurar monitoring e backup (opcional mas recomendado)
-bash scripts/06-monitoring.sh
+# 4. Trocar provider padrão (opcional):
+#    Em systemd/openclaw-bot.service:
+#    Environment=DEFAULT_PROVIDER=claude
 ```
 
-## Secrets configurados (não commitar — Secret Manager apenas)
+### 5. Copiar best-practices do VM (pendente)
 
-| Secret | Valor | Status |
-|--------|-------|--------|
-| telegram-bot-token | Bot @Nexusorquestradorbot | ✅ Aguardando `04-setup-secrets.sh` |
-| telegram-allowed-user-id | ID 6809811401 | ✅ Aguardando `04-setup-secrets.sh` |
-| gemini-api-key | Verificar formato (⚠️ ver nota abaixo) | ⚠️ Pendente |
-| whatsapp-token | — | ⏳ Opcional |
-
-> ⚠️ **Atenção Gemini API Key:** O formato fornecido (`AQ.ab8...`) é incomum.
-> Chaves do Google AI Studio começam com `AIzaSy...`.
-> Verifique em: https://aistudio.google.com/apikey
-
-### `squads/prospeccao.yaml`
-Squad de prospecção de leads sem checkpoint — roda automaticamente via scheduler.
-Integra com Serper API para busca e WhatsApp para envio de mensagens.
-
-### `squads/conteudo-instagram.yaml`
-Squad de criação de conteúdo para Instagram.
-Usa checkpoint para aprovação do conteúdo antes de publicar.
-
-### `skills/telegram-notify.js`
-Skill OpenSquad que envia notificações para o Telegram.
-Usado pelos squads para reportar resultados sem interação do usuário.
-
-### `skills/whatsapp-send.js`
-Skill OpenSquad para envio de mensagens WhatsApp via API Flask local.
-
-### `.gitignore` — adicionar entradas
+```bash
+# Estes arquivos existem em /opt/nexus/_opensquad/core/best-practices/
+# mas NÃO estão no repo. Copiar para enriquecer os prompts das skills:
+gcloud compute ssh agenda-nexus --zone=us-central1-a \
+  --project=project-87c1c65b-10d3-40d5-999 -- \
+  "cat /opt/nexus/_opensquad/core/best-practices/copywriting.md"
+# Repetir para: strategist.md, researching.md, instagram-feed.md,
+# instagram-stories.md, instagram-reels.md, whatsapp-broadcast.md
+# Salvar em: _opensquad/core/best-practices/
 ```
-_opensquad/
-logs/
-venv/
-node_modules/
-*.log
+
+---
+
+## Arquitetura atual
+
 ```
+Telegram
+  │
+  ├─ /run <squad>            → SquadExecutor (preservado 100%)
+  ├─ /skill <nome> [args]    → SkillLoader.execute(skill, context, provider)
+  ├─ /ask <mensagem>         → Orchestrator(FAST) → skill → provider(FAST|POWERFUL)
+  ├─ /design <briefing>      → frontend_design (POWERFUL) → PNG via Playwright
+  ├─ /research <tópico>      → autoresearch depth=quick (FAST+POWERFUL)
+  ├─ /providers              → lista providers e status
+  ├─ /skills                 → lista skills disponíveis
+  └─ /usage                  → chamadas FAST vs POWERFUL da sessão
+```
+
+---
 
 ## Informações da Infraestrutura
 
@@ -122,17 +155,13 @@ node_modules/
 | Zone | `us-central1-a` |
 | Machine Type | `e2-standard-4` (4 vCPU / 16 GB) |
 | OS | Ubuntu 24.04 LTS |
-| Disk | 50 GB pd-balanced |
 | Service Account | `agenda-lucrativa-sa@project-87c1c65b-10d3-40d5-999.iam.gserviceaccount.com` |
 | Branch de trabalho | `claude/gcloud-workspace-setup-4Sm2I` |
 
-## VMs Deletadas (pelo 01-create-vm.sh)
-
-- `nexus-v2` (us-central1-a) — e2-standard-4, 4 vCPU 16GB
-- `instance-20260326-232934` (us-central1-c, 10.128.0.2) — SA padrão, SSH keys expiradas
+---
 
 ## Como Retomar
 
 1. Abrir nova sessão
 2. Dizer: **"continue de onde parou"**
-3. Eu lerei este arquivo e continuarei pelo Intervalo 3
+3. Próximo passo: **Intervalo D** — deploy na VM + testes end-to-end (ver seção acima)
