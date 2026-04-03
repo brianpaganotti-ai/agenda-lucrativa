@@ -95,7 +95,7 @@ ALLOWED_USER_ID = None   # populado no startup
 GEMINI_API_KEY: str = "" # carregado no startup via Secret Manager
 SERPER_API_KEY: str = "" # carregado no startup via Secret Manager
 
-OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "gemini-2.0-flash")
+OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "gemini-1.5-flash")
 
 
 def is_authorized(update: Update) -> bool:

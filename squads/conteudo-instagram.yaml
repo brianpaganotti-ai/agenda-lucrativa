@@ -22,7 +22,7 @@ pipeline:
 
   - id: pesquisador
     name: "Pesquisador de Tendências"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     skill: serper-search
     prompt: >
       Pesquise no Google e Instagram as tendências atuais sobre "{{TEMA}}".
@@ -35,7 +35,7 @@ pipeline:
 
   - id: criador
     name: "Criador de Conteúdo"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [pesquisador]
     prompt: >
       Com base em tmp/tendencias_instagram.json, crie conteúdo para Instagram:
@@ -56,7 +56,7 @@ pipeline:
 
   - id: revisor
     name: "Revisor de Qualidade"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [criador]
     prompt: >
       Revise tmp/conteudo_rascunho.json com olhar crítico:
@@ -95,7 +95,7 @@ pipeline:
 
   - id: finalizador
     name: "Finalizador"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [aprovacao]
     prompt: >
       O usuário aprovou o conteúdo. Salve a versão final em:
@@ -107,7 +107,7 @@ pipeline:
 
   - id: notificador
     name: "Notificador"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [finalizador]
     skill: telegram-notify
     prompt: >

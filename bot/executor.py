@@ -124,7 +124,7 @@ class SquadExecutor:
         serper_api_key: str = "",
         telegram_token: str = "",
         telegram_chat_id: Optional[str] = None,
-        default_model: str = "gemini-2.0-flash",
+        default_model: str = "gemini-1.5-flash",
     ):
         if not GENAI_OK:
             raise RuntimeError("google-generativeai não está instalado")

@@ -28,7 +28,7 @@ pipeline:
 
   - id: buscador
     name: "Buscador de Leads"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     skill: serper-search          # skill que usa a Serper API
     prompt: >
       Pesquise por "{{SEGMENTO}} em {{CIDADE}}" usando a Serper API.
@@ -39,7 +39,7 @@ pipeline:
 
   - id: qualificador
     name: "Qualificador de Leads"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [buscador]
     prompt: >
       Leia tmp/leads_brutos.json.
@@ -53,7 +53,7 @@ pipeline:
 
   - id: redator
     name: "Redator de Mensagens"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [qualificador]
     prompt: >
       Leia tmp/leads_qualificados.json.
@@ -69,7 +69,7 @@ pipeline:
 
   - id: disparador
     name: "Disparador WhatsApp"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [redator]
     skill: whatsapp-send          # skill que chama a API Flask local
     prompt: >
@@ -83,7 +83,7 @@ pipeline:
 
   - id: notificador
     name: "Notificador Telegram"
-    model: gemini-2.0-flash
+    model: gemini-1.5-flash
     depends_on: [disparador]
     skill: telegram-notify        # skill que notifica o usuário
     prompt: >
