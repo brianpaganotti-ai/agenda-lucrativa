@@ -16,6 +16,7 @@ squads/output/
 # Credenciais GCP (nunca commitar)
 *.json
 !config/opencode.json
+!config/providers.json
 key*
 .gcloud/agenda-lucrativa-key.json
 

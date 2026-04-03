@@ -114,8 +114,11 @@ def list_squads() -> list[str]:
 
 
 def squad_log_path(squad_name: str) -> Path:
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    return LOGS_DIR / f"{squad_name}.log"
+    """Retorna o log mais recente do squad (por run_id timestamp)."""
+    squad_logs = LOGS_DIR / squad_name
+    squad_logs.mkdir(parents=True, exist_ok=True)
+    logs = sorted(squad_logs.glob("*.log"), reverse=True)
+    return logs[0] if logs else squad_logs / "empty.log"
 
 
 def tail_log(squad_name: str, lines: int = 50) -> str:
@@ -125,7 +128,9 @@ def tail_log(squad_name: str, lines: int = 50) -> str:
     with open(log_path, "r") as f:
         all_lines = f.readlines()
     tail = all_lines[-lines:]
-    return "".join(tail) if tail else "Log vazio."
+    # Inclui nome do arquivo (run_id) no topo para referência
+    header = f"[run: {log_path.stem}]\n"
+    return header + ("".join(tail) if tail else "Log vazio.")
 
 
 def list_pending_checkpoints() -> list[dict]:

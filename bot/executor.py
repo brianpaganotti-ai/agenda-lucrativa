@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Coroutine, Optional
 
@@ -56,6 +57,11 @@ class SquadExecutor:
         self.nexus_dir = nexus_dir
         self.tmp_dir = nexus_dir / "tmp"
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        squad_name = Path(squad_yaml).stem
+        self.run_id = f"{squad_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.log_path = nexus_dir / "logs" / squad_name / f"{self.run_id}.log"
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.serper_api_key = serper_api_key
         self.telegram_token = telegram_token
@@ -170,18 +176,32 @@ class SquadExecutor:
         raw = self._serper(f"{segmento} em {cidade}")
 
         # 2. Gemini extrai e normaliza para lista de leads
+        if not raw.get("organic") and not raw.get("localResults") and not raw.get("places"):
+            self._write("leads_brutos.json",
+                json.dumps({"status": "sem_resultados", "leads": []}, ensure_ascii=False))
+            raise RuntimeError(
+                f"Serper não retornou resultados para '{segmento} em {cidade}'. "
+                "Verifique a serper-api-key ou tente outro segmento/cidade.")
+
         prompt = (
             f"Você recebeu resultados de busca para '{segmento} em {cidade}'.\n\n"
             f"DADOS BRUTOS:\n{json.dumps(raw, ensure_ascii=False)[:6000]}\n\n"
             f"Extraia até {limite} negócios locais que tenham telefone.\n"
             f"Retorne SOMENTE um array JSON válido, sem texto adicional, sem markdown:\n"
             f'[{{"nome":"...","endereco":"...","telefone":"...","website":"...","instagram":""}}]\n'
-            f"Use aspas duplas. Se não houver dados reais, crie exemplos plausíveis para {segmento} em {cidade}."
+            f"Use aspas duplas. Retorne [] se não houver negócios com telefone."
         )
         result = self._gemini(prompt)
         leads = self._extract_json(result)
         if not isinstance(leads, list):
             leads = []
+
+        if not leads:
+            self._write("leads_brutos.json",
+                json.dumps({"status": "sem_resultados", "leads": []}, ensure_ascii=False))
+            raise RuntimeError(
+                f"Nenhum lead com telefone encontrado para '{segmento} em {cidade}'. "
+                "Tente segmento ou cidade diferente.")
 
         self._write("leads_brutos.json", json.dumps(leads, ensure_ascii=False, indent=2))
         return f"Encontrados {len(leads)} leads brutos."
@@ -342,17 +362,28 @@ class SquadExecutor:
                 except Exception:
                     pass
 
-        await notify(f"🚀 Squad *{self.squad.get('name', '?')}* iniciado — {len(pipeline)} step(s)")
+        squad_name = self.squad.get("name", "?")
+
+        def _log(msg: str) -> None:
+            ts = datetime.now().strftime("%H:%M:%S")
+            with open(self.log_path, "a", encoding="utf-8") as lf:
+                lf.write(f"[{ts}] {msg}\n")
+
+        _log(f"RUN_ID={self.run_id}")
+        await notify(f"🚀 Squad *{squad_name}* iniciado — {len(pipeline)} step(s)")
+        _log(f"iniciado — {len(pipeline)} steps")
 
         for step in pipeline:
             step_id = step["id"]
             step_name = step.get("name", step_id)
 
             await notify(f"▶️ *{step_name}*...")
+            _log(f"[{step_id}] iniciando")
 
             try:
                 result = await asyncio.to_thread(self._run_step_sync, step, variables)
                 results[step_id] = result
+                _log(f"[{step_id}] OK — {result[:120]}")
 
                 preview = result[:300].strip()
                 if len(result) > 300:
@@ -360,12 +391,15 @@ class SquadExecutor:
                 await notify(f"✅ *{step_name}*\n```\n{preview}\n```")
 
             except asyncio.CancelledError:
+                _log(f"[{step_id}] CANCELADO")
                 await notify(f"⛔ Cancelado em *{step_name}*")
                 raise
             except Exception as exc:
                 logger.exception("Erro no step %s", step_id)
+                _log(f"[{step_id}] ERRO — {exc}")
                 results[step_id] = f"ERRO: {exc}"
                 await notify(f"❌ *{step_name}*: {exc}")
 
-        await notify(f"🏁 Squad *{self.squad.get('name', '?')}* finalizado")
+        _log("finalizado")
+        await notify(f"🏁 Squad *{squad_name}* finalizado")
         return results

@@ -1,9 +1,9 @@
 {
-  "autoapprove": [
-    "bash",
-    "write",
-    "read",
-    "edit",
-    "external_directory"
-  ]
+  "autoapprove": ["read", "list"],
+  "permissions": {
+    "write": "ask",
+    "edit": "ask",
+    "bash": "ask",
+    "external_directory": "deny"
+  }
 }

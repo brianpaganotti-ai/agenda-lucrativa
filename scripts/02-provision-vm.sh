@@ -63,8 +63,11 @@ npx --yes playwright install chromium --with-deps
 echo "[OK] Playwright/Chromium instalado."
 
 # ---------------------------------------------------------------------------
-# 5. Diretório do projeto
+# 5. Usuário de serviço + diretório do projeto
 # ---------------------------------------------------------------------------
+echo "[INFO] Criando usuário de serviço 'nexus'..."
+useradd -r -s /bin/false -d "$NEXUS_DIR" nexus 2>/dev/null || true
+
 echo "[INFO] Clonando repositório..."
 mkdir -p "$NEXUS_DIR"
 git clone --branch "$BRANCH" "$REPO_URL" "$NEXUS_DIR"
@@ -144,7 +147,14 @@ systemctl enable google-cloud-ops-agent
 echo "[OK] Ops Agent instalado."
 
 # ---------------------------------------------------------------------------
-# 11. Marcar como provisionado
+# 11. Permissões corretas para o usuário de serviço
+# ---------------------------------------------------------------------------
+echo "[INFO] Ajustando permissões para usuário nexus..."
+chown -R nexus:nexus "$NEXUS_DIR"
+chmod -R 750 "$NEXUS_DIR"
+
+# ---------------------------------------------------------------------------
+# 12. Marcar como provisionado
 # ---------------------------------------------------------------------------
 touch /opt/.provisioned
 echo ""
