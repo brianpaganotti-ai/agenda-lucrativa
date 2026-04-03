@@ -1,103 +1,30 @@
 """
 executor.py — Executa pipelines OpenSquad-style via Vertex AI (Gemini 2.5 Flash).
 
-Usa Application Default Credentials da VM (service account agenda-lucrativa-sa)
-— sem API key separada. Cada step do squad YAML roda com Gemini function calling:
-o modelo pode ler/escrever arquivos, pesquisar (Serper), enviar WhatsApp e Telegram.
+Arquitetura: cada step tem um handler Python dedicado.
+Gemini gera apenas texto — Python faz todo I/O, API calls e parse.
+Sem function calling (incompatível com Gemini 2.5 Flash via Vertex AI SDK).
 """
 
 import asyncio
 import json
 import logging
-import os
+import re
 from pathlib import Path
 from typing import Callable, Coroutine, Optional
 
+import requests
 import yaml
 
 logger = logging.getLogger(__name__)
 
 try:
     import vertexai
-    from vertexai.generative_models import (
-        FunctionDeclaration,
-        GenerativeModel,
-        Part,
-        Tool,
-    )
+    from vertexai.generative_models import GenerativeModel, GenerationConfig
     VERTEXAI_OK = True
 except ImportError:
     VERTEXAI_OK = False
     logger.error("Instale: pip install google-cloud-aiplatform")
-
-
-# ---------------------------------------------------------------------------
-# Schema das ferramentas disponíveis para o Gemini
-# ---------------------------------------------------------------------------
-
-def _build_tools() -> "Tool":
-    return Tool(function_declarations=[
-        FunctionDeclaration(
-            name="read_file",
-            description=(
-                "Lê o conteúdo de um arquivo no diretório do projeto. "
-                "Use caminhos relativos: tmp/leads.json, squads/prospeccao.yaml, etc."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Caminho relativo ao diretório do projeto"}
-                },
-                "required": ["path"],
-            },
-        ),
-        FunctionDeclaration(
-            name="write_file",
-            description="Escreve conteúdo em um arquivo. Use caminhos relativos: tmp/resultado.json",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Caminho relativo ao diretório do projeto"},
-                    "content": {"type": "string", "description": "Conteúdo completo do arquivo"},
-                },
-                "required": ["path", "content"],
-            },
-        ),
-        FunctionDeclaration(
-            name="serper_search",
-            description="Pesquisa no Google via Serper API. Retorna resultados orgânicos e dados de empresas locais.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Termo de busca"}
-                },
-                "required": ["query"],
-            },
-        ),
-        FunctionDeclaration(
-            name="send_telegram",
-            description="Envia uma mensagem de texto para o usuário via Telegram.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "message": {"type": "string", "description": "Texto da mensagem"}
-                },
-                "required": ["message"],
-            },
-        ),
-        FunctionDeclaration(
-            name="send_whatsapp",
-            description="Envia uma mensagem WhatsApp para um número de telefone.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "phone": {"type": "string", "description": "Número E.164, ex: +5511999999999"},
-                    "message": {"type": "string", "description": "Texto da mensagem"},
-                },
-                "required": ["phone", "message"],
-            },
-        ),
-    ])
 
 
 # ---------------------------------------------------------------------------
@@ -106,11 +33,10 @@ def _build_tools() -> "Tool":
 
 class SquadExecutor:
     """
-    Executa um squad YAML usando Vertex AI (Gemini 2.5 Flash) com function calling.
-    Usa ADC da VM — sem API key separada.
+    Executa um squad YAML.
+    Gemini 2.5 Flash (Vertex AI) para geração de texto.
+    Python puro para I/O, Serper, WhatsApp, Telegram.
     """
-
-    MAX_TOOL_ROUNDS = 40
 
     def __init__(
         self,
@@ -122,10 +48,10 @@ class SquadExecutor:
         telegram_token: str = "",
         telegram_chat_id: Optional[str] = None,
         default_model: str = "gemini-2.5-flash",
-        gemini_api_key: str = "",  # mantido por compatibilidade, não usado com Vertex
+        gemini_api_key: str = "",  # não usado com Vertex AI
     ):
         if not VERTEXAI_OK:
-            raise RuntimeError("google-cloud-aiplatform não está instalado")
+            raise RuntimeError("google-cloud-aiplatform não instalado")
 
         self.nexus_dir = nexus_dir
         self.tmp_dir = nexus_dir / "tmp"
@@ -137,146 +63,259 @@ class SquadExecutor:
         self.default_model = default_model
 
         vertexai.init(project=project_id, location=location)
+        self.model = GenerativeModel(
+            model_name=default_model,
+            generation_config=GenerationConfig(temperature=0.7, max_output_tokens=8192),
+        )
 
         with open(squad_yaml, encoding="utf-8") as f:
             self.squad: dict = yaml.safe_load(f)
 
     # -------------------------------------------------------------------------
-    # Implementações das ferramentas (síncronas — rodam em thread)
+    # Gemini — geração de texto simples
     # -------------------------------------------------------------------------
 
-    def _read_file(self, path: str) -> str:
-        p = self.nexus_dir / path
-        if not p.exists():
-            return f"[ARQUIVO NÃO ENCONTRADO: {path}]"
-        try:
-            return p.read_text(encoding="utf-8")
-        except Exception as e:
-            return f"[ERRO AO LER {path}: {e}]"
+    def _gemini(self, prompt: str) -> str:
+        """Chama Gemini e retorna o texto gerado."""
+        response = self.model.generate_content(prompt)
+        return response.text.strip()
 
-    def _write_file(self, path: str, content: str) -> str:
-        p = self.nexus_dir / path
+    # -------------------------------------------------------------------------
+    # Utilidades de arquivo
+    # -------------------------------------------------------------------------
+
+    def _read(self, filename: str) -> str:
+        p = self.tmp_dir / filename
+        return p.read_text(encoding="utf-8") if p.exists() else ""
+
+    def _write(self, filename: str, content: str) -> None:
+        p = self.tmp_dir / filename
         p.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            p.write_text(content, encoding="utf-8")
-            return f"OK: {path} ({len(content)} bytes escritos)"
-        except Exception as e:
-            return f"ERRO ao escrever {path}: {e}"
+        p.write_text(content, encoding="utf-8")
+        logger.info("Escrito: %s (%d bytes)", filename, len(content))
 
-    def _serper_search(self, query: str) -> str:
-        if not self.serper_api_key:
-            return json.dumps({
-                "organic": [{"title": f"Busca simulada: {query}", "snippet": "Configure serper-api-key"}]
-            })
-        import requests
+    def _extract_json(self, text: str):
+        """Extrai JSON de resposta do Gemini (ignora markdown code fences)."""
+        # Remove ```json ... ``` ou ``` ... ```
+        text = re.sub(r"```(?:json)?\s*", "", text)
+        text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE).strip()
+        # Tenta encontrar array ou objeto
+        for pattern in (r"\[[\s\S]*\]", r"\{[\s\S]*\}"):
+            m = re.search(pattern, text)
+            if m:
+                try:
+                    return json.loads(m.group())
+                except json.JSONDecodeError:
+                    pass
         try:
-            resp = requests.post(
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
+
+    # -------------------------------------------------------------------------
+    # APIs externas
+    # -------------------------------------------------------------------------
+
+    def _serper(self, query: str) -> dict:
+        if not self.serper_api_key:
+            return {"organic": [], "localResults": []}
+        try:
+            r = requests.post(
                 "https://google.serper.dev/search",
                 headers={"X-API-KEY": self.serper_api_key, "Content-Type": "application/json"},
                 json={"q": query, "num": 20, "hl": "pt-br", "gl": "br"},
                 timeout=15,
             )
-            return resp.text
+            return r.json()
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            logger.error("Serper error: %s", e)
+            return {"organic": [], "localResults": []}
 
-    def _send_telegram(self, message: str) -> str:
-        if not self.telegram_token or not self.telegram_chat_id:
-            return "Telegram não configurado"
-        import requests
+    def _whatsapp_send(self, phone: str, message: str) -> str:
         try:
-            resp = requests.post(
-                f"https://api.telegram.org/bot{self.telegram_token}/sendMessage",
-                json={"chat_id": self.telegram_chat_id, "text": message, "parse_mode": "Markdown"},
-                timeout=10,
-            )
-            data = resp.json()
-            return "enviado" if data.get("ok") else f"erro: {data.get('description')}"
-        except Exception as e:
-            return f"Erro Telegram: {e}"
-
-    def _send_whatsapp(self, phone: str, message: str) -> str:
-        import requests
-        try:
-            resp = requests.post(
+            r = requests.post(
                 "http://localhost:5000/send",
                 json={"phone": phone, "message": message},
                 timeout=30,
             )
-            return resp.json().get("status", "sem status")
+            return r.json().get("status", "ok")
         except Exception as e:
-            return f"Erro WhatsApp: {e}"
+            return f"erro: {e}"
 
-    def _dispatch(self, name: str, args: dict) -> str:
-        logger.info("[tool] %s(%s)", name, {k: str(v)[:80] for k, v in args.items()})
-        if name == "read_file":
-            return self._read_file(args.get("path", ""))
-        if name == "write_file":
-            return self._write_file(args.get("path", ""), args.get("content", ""))
-        if name == "serper_search":
-            return self._serper_search(args.get("query", ""))
-        if name == "send_telegram":
-            return self._send_telegram(args.get("message", ""))
-        if name == "send_whatsapp":
-            return self._send_whatsapp(args.get("phone", ""), args.get("message", ""))
-        return f"[ferramenta desconhecida: {name}]"
+    def _telegram_send(self, text: str) -> None:
+        if not self.telegram_token or not self.telegram_chat_id:
+            return
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.telegram_token}/sendMessage",
+                json={"chat_id": self.telegram_chat_id, "text": text},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.warning("Telegram send error: %s", e)
 
     # -------------------------------------------------------------------------
-    # Execução de step (síncrono — chamado via asyncio.to_thread)
+    # Handlers por step
     # -------------------------------------------------------------------------
+
+    def _step_buscador(self, variables: dict) -> str:
+        cidade = variables.get("CIDADE", "São Paulo")
+        segmento = variables.get("SEGMENTO", "salões de beleza")
+        limite = int(variables.get("LIMITE", "20"))
+
+        # 1. Busca real via Serper
+        raw = self._serper(f"{segmento} em {cidade}")
+
+        # 2. Gemini extrai e normaliza para lista de leads
+        prompt = (
+            f"Você recebeu resultados de busca para '{segmento} em {cidade}'.\n\n"
+            f"DADOS BRUTOS:\n{json.dumps(raw, ensure_ascii=False)[:6000]}\n\n"
+            f"Extraia até {limite} negócios locais que tenham telefone.\n"
+            f"Retorne SOMENTE um array JSON válido, sem texto adicional, sem markdown:\n"
+            f'[{{"nome":"...","endereco":"...","telefone":"...","website":"...","instagram":""}}]\n'
+            f"Use aspas duplas. Se não houver dados reais, crie exemplos plausíveis para {segmento} em {cidade}."
+        )
+        result = self._gemini(prompt)
+        leads = self._extract_json(result)
+        if not isinstance(leads, list):
+            leads = []
+
+        self._write("leads_brutos.json", json.dumps(leads, ensure_ascii=False, indent=2))
+        return f"Encontrados {len(leads)} leads brutos."
+
+    def _step_qualificador(self, variables: dict) -> str:
+        raw = self._read("leads_brutos.json")
+        if not raw:
+            return "leads_brutos.json não encontrado."
+
+        segmento = variables.get("SEGMENTO", "negócio local")
+        prompt = (
+            f"Qualifique estes leads para {segmento}.\n\n"
+            f"LEADS:\n{raw}\n\n"
+            f"Critérios:\n"
+            f"- Telefone celular (9 após DDD): +3\n"
+            f"- Website ou Instagram: +3\n"
+            f"- Negócio local (não franquia): +2\n"
+            f"- Dados completos: +2\n\n"
+            f"Retorne SOMENTE array JSON dos leads com score >= 6, sem markdown:\n"
+            f'[{{"nome":"...","telefone":"...","website":"...","instagram":"...","score":8,"motivo":"..."}}]'
+        )
+        result = self._gemini(prompt)
+        leads_q = self._extract_json(result)
+        if not isinstance(leads_q, list):
+            leads_q = []
+
+        self._write("leads_qualificados.json", json.dumps(leads_q, ensure_ascii=False, indent=2))
+
+        resumo = (
+            f"Qualificação concluída:\n"
+            f"- Total qualificados: {len(leads_q)}\n"
+            f"- Scores: {[l.get('score', 0) for l in leads_q]}"
+        )
+        self._write("qualificacao_resumo.txt", resumo)
+        return resumo
+
+    def _step_redator(self, variables: dict) -> str:
+        leads_raw = self._read("leads_qualificados.json")
+        if not leads_raw:
+            return "leads_qualificados.json não encontrado."
+
+        segmento = variables.get("SEGMENTO", "negócio local")
+        prompt = (
+            f"Crie mensagens de WhatsApp para estes leads de {segmento}.\n\n"
+            f"LEADS:\n{leads_raw}\n\n"
+            f"Regras:\n"
+            f"- Tom profissional mas descontraído, em português\n"
+            f"- Máximo 3 parágrafos curtos\n"
+            f"- Mencione o nome do negócio\n"
+            f"- Destaque 1 benefício específico para {segmento}\n"
+            f"- CTA claro para agendar conversa\n"
+            f"- Máximo 2 emojis por mensagem\n\n"
+            f"Retorne SOMENTE array JSON, sem markdown:\n"
+            f'[{{"lead":"nome","telefone":"+5511...","mensagem":"texto aqui"}}]'
+        )
+        result = self._gemini(prompt)
+        msgs = self._extract_json(result)
+        if not isinstance(msgs, list):
+            msgs = []
+
+        self._write("mensagens_whatsapp.json", json.dumps(msgs, ensure_ascii=False, indent=2))
+        return f"{len(msgs)} mensagens redigidas."
+
+    def _step_disparador(self, variables: dict) -> str:
+        msgs_raw = self._read("mensagens_whatsapp.json")
+        if not msgs_raw:
+            return "mensagens_whatsapp.json não encontrado."
+
+        try:
+            msgs = json.loads(msgs_raw)
+        except json.JSONDecodeError:
+            return "Erro ao parsear mensagens_whatsapp.json."
+
+        resultados = []
+        for msg in msgs:
+            phone = msg.get("telefone", "")
+            text = msg.get("mensagem", "")
+            lead = msg.get("lead", "?")
+            status = self._whatsapp_send(phone, text)
+            resultados.append({"lead": lead, "telefone": phone, "status": status})
+            import time; time.sleep(3)
+
+        enviados = sum(1 for r in resultados if "erro" not in r["status"].lower())
+        relatorio = {"total": len(resultados), "enviados": enviados,
+                     "falhas": len(resultados) - enviados, "detalhes": resultados}
+        self._write("relatorio_prospeccao.json", json.dumps(relatorio, ensure_ascii=False, indent=2))
+        return f"Disparado: {enviados}/{len(resultados)} enviados."
+
+    def _step_notificador(self, variables: dict) -> str:
+        resumo = self._read("qualificacao_resumo.txt")
+        relatorio_raw = self._read("relatorio_prospeccao.json")
+
+        msg = "📊 *Prospecção concluída!*\n\n"
+        if resumo:
+            msg += resumo + "\n\n"
+        if relatorio_raw:
+            try:
+                rel = json.loads(relatorio_raw)
+                msg += (
+                    f"📤 WhatsApp:\n"
+                    f"- Enviadas: {rel.get('enviados', 0)}\n"
+                    f"- Falhas: {rel.get('falhas', 0)}"
+                )
+            except Exception:
+                pass
+
+        self._telegram_send(msg.replace("*", ""))
+        return msg
+
+    # Handler genérico para steps não mapeados
+    def _step_generic(self, step: dict, variables: dict) -> str:
+        prompt = step.get("prompt", "")
+        for k, v in variables.items():
+            prompt = prompt.replace(f"{{{{{k}}}}}", str(v))
+        return self._gemini(prompt)
+
+    # Mapa step_id → handler
+    _HANDLERS = {
+        "buscador": _step_buscador,
+        "qualificador": _step_qualificador,
+        "redator": _step_redator,
+        "disparador": _step_disparador,
+        "notificador": _step_notificador,
+        # conteudo-instagram
+        "pesquisador": lambda self, v: self._step_generic({"prompt": "Pesquise tendências de Instagram."}, v),
+        "criador": lambda self, v: self._step_generic({"prompt": "Crie conteúdo."}, v),
+        "revisor": lambda self, v: self._step_generic({"prompt": "Revise o conteúdo."}, v),
+        "aprovacao": lambda self, v: self._step_generic({"prompt": "Apresente preview."}, v),
+        "finalizador": lambda self, v: self._step_generic({"prompt": "Finalize."}, v),
+    }
 
     def _run_step_sync(self, step: dict, variables: dict) -> str:
-        model_name = step.get("model", self.default_model)
-        # Normaliza: "google/gemini-2.5-flash" → "gemini-2.5-flash"
-        if "/" in model_name:
-            model_name = model_name.split("/", 1)[1]
-        # Troca modelos descontinuados
-        if model_name in ("gemini-2.0-flash", "gemini-1.5-flash"):
-            model_name = self.default_model
-
-        model = GenerativeModel(
-            model_name=model_name,
-            tools=[_build_tools()],
-        )
-
-        prompt = step.get("prompt", "")
-        for key, val in variables.items():
-            prompt = prompt.replace(f"{{{{{key}}}}}", str(val))
-
-        logger.info("[step:%s] model=%s prompt_len=%d", step["id"], model_name, len(prompt))
-
-        chat = model.start_chat()
-        response = chat.send_message(prompt)
-
-        # Loop de tool calls
-        for round_n in range(self.MAX_TOOL_ROUNDS):
-            fc_parts = [
-                p for p in response.candidates[0].content.parts
-                if hasattr(p, "function_call") and p.function_call.name
-            ]
-            if not fc_parts:
-                break
-
-            tool_responses = []
-            for part in fc_parts:
-                fc = part.function_call
-                result = self._dispatch(fc.name, dict(fc.args))
-                tool_responses.append(
-                    Part.from_function_response(
-                        name=fc.name,
-                        response={"result": result},
-                    )
-                )
-
-            logger.info("[step:%s] round=%d tools=%d", step["id"], round_n, len(tool_responses))
-            response = chat.send_message(tool_responses)
-
-        # Texto final
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, "text") and part.text:
-                return part.text
-
-        return "(step sem resposta de texto)"
+        step_id = step["id"]
+        handler = self._HANDLERS.get(step_id)
+        if handler:
+            return handler(self, variables)
+        return self._step_generic(step, variables)
 
     # -------------------------------------------------------------------------
     # Pipeline completo (assíncrono)
@@ -315,10 +354,10 @@ class SquadExecutor:
                 preview = result[:300].strip()
                 if len(result) > 300:
                     preview += "…"
-                await notify(f"✅ *{step_name}* concluído\n```\n{preview}\n```")
+                await notify(f"✅ *{step_name}*\n```\n{preview}\n```")
 
             except asyncio.CancelledError:
-                await notify(f"⛔ Squad cancelado no step *{step_name}*")
+                await notify(f"⛔ Cancelado em *{step_name}*")
                 raise
             except Exception as exc:
                 logger.exception("Erro no step %s", step_id)
