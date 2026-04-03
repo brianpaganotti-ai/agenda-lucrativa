@@ -95,7 +95,7 @@ ALLOWED_USER_ID = None  # populado no startup
 GEMINI_API_KEY: str = ""  # carregado no startup via Secret Manager
 
 # Modelo via Vertex AI (usa service account da VM — sem custo de API key separada)
-OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "google-vertex/gemini-2.0-flash")
+OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "google/gemini-2.0-flash")
 
 
 def is_authorized(update: Update) -> bool:
