@@ -95,7 +95,7 @@ ALLOWED_USER_ID = None  # populado no startup
 GEMINI_API_KEY: str = ""  # carregado no startup via Secret Manager
 
 # Modelo via Vertex AI (usa service account da VM — sem custo de API key separada)
-OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "google-vertex/gemini-2.0-flash-001")
+OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "google-vertex/gemini-2.0-flash")
 
 
 def is_authorized(update: Update) -> bool:
@@ -283,6 +283,8 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         proc_env = os.environ.copy()
         proc_env["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
         proc_env["GOOGLE_CLOUD_REGION"] = "us-central1"
+        proc_env["GOOGLE_VERTEX_PROJECT"] = PROJECT_ID
+        proc_env["GOOGLE_VERTEX_LOCATION"] = "us-central1"
         # Fallback: se tiver API key do AI Studio também injeta
         if GEMINI_API_KEY:
             proc_env["GOOGLE_GENERATIVE_AI_API_KEY"] = GEMINI_API_KEY
