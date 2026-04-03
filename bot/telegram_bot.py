@@ -295,12 +295,12 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Aqui instruímos o AI diretamente a executar o pipeline do squad.
         squad_yaml_path = SQUADS_DIR / f"{squad_name}.yaml"
         prompt = (
-            f"Read the squad definition file at {squad_yaml_path} "
-            f"and execute all pipeline steps defined in it. "
-            f"For each agent step: read the prompt, execute the task using bash commands "
-            f"and available APIs, save intermediate results to /tmp/ as specified, "
-            f"then proceed to the next step. "
-            f"Complete all steps in sequence and report the final result."
+            f"Leia o arquivo de squad em {squad_yaml_path} "
+            f"e execute todos os passos do pipeline definidos nele. "
+            f"Para cada agente: leia o prompt, execute a tarefa usando comandos bash "
+            f"e APIs disponíveis, salve os resultados intermediários em /tmp/ conforme especificado, "
+            f"e avance para o próximo passo. "
+            f"Conclua todos os passos em sequência e apresente o resultado final em português."
         )
         cmd = ["opencode", "run", "-m", OPENCODE_MODEL] + prompt.split()
 
