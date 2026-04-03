@@ -95,7 +95,7 @@ ALLOWED_USER_ID = None   # populado no startup
 GEMINI_API_KEY: str = "" # carregado no startup via Secret Manager
 SERPER_API_KEY: str = "" # carregado no startup via Secret Manager
 
-OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "gemini-1.5-flash")
+OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "gemini-2.5-flash")
 
 
 def is_authorized(update: Update) -> bool:
@@ -248,7 +248,8 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             executor = SquadExecutor(
                 squad_yaml=squad_yaml_path,
                 nexus_dir=NEXUS_DIR,
-                gemini_api_key=GEMINI_API_KEY,
+                project_id=PROJECT_ID,
+                location="us-central1",
                 serper_api_key=SERPER_API_KEY,
                 telegram_token=context.bot.token,
                 telegram_chat_id=chat_id,
