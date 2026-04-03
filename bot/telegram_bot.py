@@ -294,14 +294,19 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # /opensquad run NÃO é um comando CLI — é slash command do Claude Code.
         # Aqui instruímos o AI diretamente a executar o pipeline do squad.
         squad_yaml_path = SQUADS_DIR / f"{squad_name}.yaml"
+        tmp_dir = NEXUS_DIR / "tmp"
         prompt = (
             f"Leia o arquivo de squad em {squad_yaml_path} "
             f"e execute todos os passos do pipeline definidos nele. "
             f"Para cada agente: leia o prompt, execute a tarefa usando comandos bash "
-            f"e APIs disponíveis, salve os resultados intermediários em /tmp/ conforme especificado, "
+            f"e APIs disponíveis, salve os resultados intermediários em {tmp_dir}/ conforme especificado "
+            f"(use caminhos relativos como tmp/arquivo.json a partir do diretório de trabalho), "
             f"e avance para o próximo passo. "
+            f"Crie o diretório tmp/ se não existir. "
             f"Conclua todos os passos em sequência e apresente o resultado final em português."
         )
+        # Configura HOME para diretório com config OpenCode pré-aprovada
+        proc_env["HOME"] = str(NEXUS_DIR)
         cmd = ["opencode", "run", "-m", OPENCODE_MODEL] + prompt.split()
 
         proc = subprocess.Popen(

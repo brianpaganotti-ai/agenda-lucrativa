@@ -31,14 +31,14 @@ pipeline:
       - Hashtags mais usadas (mínimo 15, máximo 30)
       - Formatos que estão performando melhor agora
       - Ganchos (hooks) de texto que geram mais engajamento
-      Salve em /tmp/tendencias_instagram.json
+      Salve em tmp/tendencias_instagram.json
 
   - id: criador
     name: "Criador de Conteúdo"
     model: gemini-2.0-flash
     depends_on: [pesquisador]
     prompt: >
-      Com base em /tmp/tendencias_instagram.json, crie conteúdo para Instagram:
+      Com base em tmp/tendencias_instagram.json, crie conteúdo para Instagram:
 
       FORMATO: {{FORMATO}}
       TOM: {{TOM}}
@@ -52,20 +52,20 @@ pipeline:
          descreva o que deve aparecer visualmente (texto na tela, imagem, ação)
       4. HOOK_ALTERNATIVO: 3 variações do gancho inicial para teste A/B
 
-      Salve em /tmp/conteudo_rascunho.json
+      Salve em tmp/conteudo_rascunho.json
 
   - id: revisor
     name: "Revisor de Qualidade"
     model: gemini-2.0-flash
     depends_on: [criador]
     prompt: >
-      Revise /tmp/conteudo_rascunho.json com olhar crítico:
+      Revise tmp/conteudo_rascunho.json com olhar crítico:
       - A legenda tem um hook forte na primeira linha?
       - O CTA é específico e incentiva ação?
       - As hashtags são relevantes (sem spam tags genéricas)?
       - O roteiro visual é executável com celular e Canva?
       - O tom está consistente com "{{TOM}}"?
-      Corrija os pontos fracos e salve a versão revisada em /tmp/conteudo_revisado.json
+      Corrija os pontos fracos e salve a versão revisada em tmp/conteudo_revisado.json
       Adicione um campo "pontuacao_qualidade" (0-10) com justificativa.
 
   # ═══ CHECKPOINT — você revisa antes de salvar ═══
@@ -74,7 +74,7 @@ pipeline:
     checkpoint: true
     depends_on: [revisor]
     prompt: >
-      Leia /tmp/conteudo_revisado.json e apresente um preview formatado
+      Leia tmp/conteudo_revisado.json e apresente um preview formatado
       para aprovação do usuário:
 
       📸 **PREVIEW DO CONTEÚDO**

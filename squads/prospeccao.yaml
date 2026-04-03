@@ -35,28 +35,28 @@ pipeline:
       Retorne uma lista JSON com até {{LIMITE}} negócios contendo:
       - nome, endereço, telefone, website, instagram (se disponível)
       Filtre apenas negócios com telefone válido.
-      Salve o resultado em /tmp/leads_brutos.json
+      Salve o resultado em tmp/leads_brutos.json
 
   - id: qualificador
     name: "Qualificador de Leads"
     model: gemini-2.0-flash
     depends_on: [buscador]
     prompt: >
-      Leia /tmp/leads_brutos.json.
+      Leia tmp/leads_brutos.json.
       Qualifique cada lead com base nos critérios:
       1. Tem telefone celular (começa com 9 após o DDD)?
       2. Tem presença online (website ou Instagram)?
       3. Parece ser negócio local (não é franquia grande)?
       Atribua score 0-10 para cada lead.
-      Salve leads com score >= 6 em /tmp/leads_qualificados.json
-      Salve resumo em /tmp/qualificacao_resumo.txt
+      Salve leads com score >= 6 em tmp/leads_qualificados.json
+      Salve resumo em tmp/qualificacao_resumo.txt
 
   - id: redator
     name: "Redator de Mensagens"
     model: gemini-2.0-flash
     depends_on: [qualificador]
     prompt: >
-      Leia /tmp/leads_qualificados.json.
+      Leia tmp/leads_qualificados.json.
       Para cada lead, crie uma mensagem de WhatsApp personalizada:
       - Tom: profissional mas descontraído
       - Máximo 3 parágrafos curtos
@@ -64,7 +64,7 @@ pipeline:
       - Destaque 1 benefício específico para o segmento {{SEGMENTO}}
       - Inclua CTA claro para marcar uma conversa
       - NÃO use emojis em excesso (máximo 2 por mensagem)
-      Salve em /tmp/mensagens_whatsapp.json com formato:
+      Salve em tmp/mensagens_whatsapp.json com formato:
       [{"lead": "nome", "telefone": "...", "mensagem": "..."}]
 
   - id: disparador
@@ -73,13 +73,13 @@ pipeline:
     depends_on: [redator]
     skill: whatsapp-send          # skill que chama a API Flask local
     prompt: >
-      Leia /tmp/mensagens_whatsapp.json.
+      Leia tmp/mensagens_whatsapp.json.
       Para cada mensagem, chame o skill whatsapp-send com:
         telefone: <número E.164, ex: +5511999999999>
         mensagem: <texto da mensagem>
       Aguarde 3 segundos entre cada envio para evitar bloqueio.
       Registre sucessos e falhas.
-      Salve relatório final em /tmp/relatorio_prospeccao.json
+      Salve relatório final em tmp/relatorio_prospeccao.json
 
   - id: notificador
     name: "Notificador Telegram"
@@ -87,7 +87,7 @@ pipeline:
     depends_on: [disparador]
     skill: telegram-notify        # skill que notifica o usuário
     prompt: >
-      Leia /tmp/relatorio_prospeccao.json e /tmp/qualificacao_resumo.txt.
+      Leia tmp/relatorio_prospeccao.json e tmp/qualificacao_resumo.txt.
       Crie um resumo executivo da prospecção:
       - Quantos leads encontrados
       - Quantos qualificados

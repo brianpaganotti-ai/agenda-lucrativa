@@ -44,6 +44,16 @@ info "Reinstalando dependências Python..."
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" \
   -- "sudo $NEXUS_DIR/venv/bin/pip install --quiet -r $NEXUS_DIR/app/requirements.txt -r $NEXUS_DIR/bot/requirements.txt"
 
+info "Instalando config OpenCode (auto-approve permissões)..."
+gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" -- "
+  sudo mkdir -p $NEXUS_DIR/.config/opencode && \
+  sudo cp $NEXUS_DIR/config/opencode.json $NEXUS_DIR/.config/opencode/config.json && \
+  sudo mkdir -p /root/.config/opencode && \
+  sudo cp $NEXUS_DIR/config/opencode.json /root/.config/opencode/config.json && \
+  sudo mkdir -p $NEXUS_DIR/tmp && \
+  echo 'OpenCode config instalada.'
+"
+
 info "Reinstalando serviços systemd..."
 gcloud compute ssh "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" -- "
   sudo cp $NEXUS_DIR/systemd/*.service /etc/systemd/system/ && \
