@@ -18,8 +18,6 @@ import glob
 import json
 import logging
 import os
-import signal
-import subprocess
 import time
 from pathlib import Path
 from typing import Optional
@@ -33,6 +31,8 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
 )
+
+from executor import SquadExecutor
 
 # ---------------------------------------------------------------------------
 # Configuração
@@ -50,8 +50,8 @@ CHECKPOINTS_DIR = OPENSQUAD_DIR / "checkpoints"
 LOGS_DIR = NEXUS_DIR / "logs"
 PROJECT_ID = os.getenv("PROJECT_ID", "project-87c1c65b-10d3-40d5-999")
 
-# Processos em execução: {squad_name: subprocess.Popen}
-running_squads: dict[str, subprocess.Popen] = {}
+# Tasks em execução: {squad_name: asyncio.Task}
+running_squads: dict[str, asyncio.Task] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -91,11 +91,11 @@ def get_allowed_user_id() -> Optional[int]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-ALLOWED_USER_ID = None  # populado no startup
-GEMINI_API_KEY: str = ""  # carregado no startup via Secret Manager
+ALLOWED_USER_ID = None   # populado no startup
+GEMINI_API_KEY: str = "" # carregado no startup via Secret Manager
+SERPER_API_KEY: str = "" # carregado no startup via Secret Manager
 
-# Modelo via Vertex AI (usa service account da VM — sem custo de API key separada)
-OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "google/gemini-2.5-flash")
+OPENCODE_MODEL = os.getenv("OPENCODE_MODEL", "gemini-2.0-flash")
 
 
 def is_authorized(update: Update) -> bool:
@@ -153,59 +153,6 @@ def resolve_checkpoint(cp_file: str, decision: str) -> None:
         f.seek(0)
         json.dump(data, f, indent=2)
         f.truncate()
-
-
-# ---------------------------------------------------------------------------
-# Execução de squads
-# ---------------------------------------------------------------------------
-async def stream_squad_output(
-    squad_name: str,
-    proc: subprocess.Popen,
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    """Lê stdout do processo e envia para o Telegram em blocos."""
-    buffer = []
-    last_send = time.time()
-    log_file = open(squad_log_path(squad_name), "a")
-
-    try:
-        for line in proc.stdout:
-            log_file.write(line)
-            log_file.flush()
-            buffer.append(line.rstrip())
-
-            # Envia bloco a cada 2s ou 20 linhas
-            if time.time() - last_send > 2 or len(buffer) >= 20:
-                chunk = "\n".join(buffer)
-                if chunk.strip():
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=f"```\n{chunk[-3800:]}\n```",
-                        parse_mode=ParseMode.MARKDOWN_V2,
-                    )
-                buffer.clear()
-                last_send = time.time()
-
-        proc.wait()
-        if buffer:
-            chunk = "\n".join(buffer)
-            if chunk.strip():
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"```\n{chunk[-3800:]}\n```",
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
-
-        status = "✅ Concluído" if proc.returncode == 0 else f"❌ Erro (código {proc.returncode})"
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"*Squad `{squad_name}` — {status}*",
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-    finally:
-        log_file.close()
-        running_squads.pop(squad_name, None)
 
 
 # ---------------------------------------------------------------------------
@@ -277,70 +224,62 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         parse_mode=ParseMode.MARKDOWN_V2,
     )
 
-    try:
-        # Monta env para o OpenCode com Vertex AI
-        # A VM usa Application Default Credentials via service account — sem API key
-        proc_env = os.environ.copy()
-        proc_env["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
-        proc_env["GOOGLE_CLOUD_REGION"] = "us-central1"
-        proc_env["GOOGLE_VERTEX_PROJECT"] = PROJECT_ID
-        proc_env["GOOGLE_VERTEX_LOCATION"] = "us-central1"
-        # Fallback: se tiver API key do AI Studio também injeta
-        if GEMINI_API_KEY:
-            proc_env["GOOGLE_GENERATIVE_AI_API_KEY"] = GEMINI_API_KEY
-            proc_env["GEMINI_API_KEY"] = GEMINI_API_KEY
+    squad_yaml_path = SQUADS_DIR / f"{squad_name}.yaml"
+    chat_id = str(update.effective_chat.id)
 
-        # Lê o YAML do squad e constrói prompt direto para o OpenCode.
-        # /opensquad run NÃO é um comando CLI — é slash command do Claude Code.
-        # Aqui instruímos o AI diretamente a executar o pipeline do squad.
-        squad_yaml_path = SQUADS_DIR / f"{squad_name}.yaml"
-        tmp_dir = NEXUS_DIR / "tmp"
-        prompt = (
-            f"Leia o arquivo de squad em {squad_yaml_path} "
-            f"e execute todos os passos do pipeline definidos nele. "
-            f"Para cada agente: leia o prompt, execute a tarefa usando comandos bash "
-            f"e APIs disponíveis, salve os resultados intermediários em {tmp_dir}/ conforme especificado "
-            f"(use caminhos relativos como tmp/arquivo.json a partir do diretório de trabalho), "
-            f"e avance para o próximo passo. "
-            f"Crie o diretório tmp/ se não existir. "
-            f"Conclua todos os passos em sequência e apresente o resultado final em português."
-        )
-        # Configura HOME para diretório com config OpenCode pré-aprovada
-        proc_env["HOME"] = str(NEXUS_DIR)
-        cmd = ["opencode", "run", "-m", OPENCODE_MODEL] + prompt.split()
+    async def progress_cb(msg: str) -> None:
+        """Envia atualização de progresso para o Telegram."""
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=msg,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except Exception as e:
+            logger.warning("Falha ao enviar progresso: %s", e)
+            # Tenta sem markdown
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+            except Exception:
+                pass
 
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(NEXUS_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=proc_env,
-        )
-        running_squads[squad_name] = proc
+    async def _run_squad() -> None:
+        try:
+            executor = SquadExecutor(
+                squad_yaml=squad_yaml_path,
+                nexus_dir=NEXUS_DIR,
+                gemini_api_key=GEMINI_API_KEY,
+                serper_api_key=SERPER_API_KEY,
+                telegram_token=context.bot.token,
+                telegram_chat_id=chat_id,
+                default_model=OPENCODE_MODEL,
+            )
+            await executor.run(progress_cb=progress_cb)
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.exception("Erro fatal no squad %s", squad_name)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"❌ Erro fatal no squad `{squad_name}`: {exc}",
+            )
+        finally:
+            running_squads.pop(squad_name, None)
 
-        # Executa streaming em background para não bloquear o bot
-        asyncio.create_task(
-            stream_squad_output(squad_name, proc, update, context)
-        )
-    except FileNotFoundError:
-        await update.message.reply_text(
-            "❌ `opencode` não encontrado\\. Verifique a instalação na VM\\.",
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
+    task = asyncio.create_task(_run_squad())
+    running_squads[squad_name] = task
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_authorized(update):
         return
-    if not running_squads:
+    active = {k: t for k, t in running_squads.items() if not t.done()}
+    if not active:
         await update.message.reply_text("Nenhum squad em execução no momento\\.", parse_mode=ParseMode.MARKDOWN_V2)
         return
     lines = ["*Squads em execução:*\n"]
-    for name, proc in running_squads.items():
-        pid = proc.pid
-        lines.append(f"🔄 `{name}` \\(PID {pid}\\)")
+    for name in active:
+        lines.append(f"🔄 `{name}`")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN_V2)
 
 
@@ -433,14 +372,14 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Uso: `/stop <nome-do-squad>`", parse_mode=ParseMode.MARKDOWN_V2)
         return
     squad_name = context.args[0].strip()
-    proc = running_squads.get(squad_name)
-    if not proc:
+    task = running_squads.get(squad_name)
+    if not task or task.done():
         await update.message.reply_text(
             f"Squad `{squad_name}` não está em execução\\.",
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         return
-    proc.send_signal(signal.SIGTERM)
+    task.cancel()
     running_squads.pop(squad_name, None)
     await update.message.reply_text(
         f"⛔ Squad `{squad_name}` interrompido\\.",
@@ -481,18 +420,26 @@ async def checkpoint_polling(context: ContextTypes.DEFAULT_TYPE) -> None:
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
-    global ALLOWED_USER_ID, GEMINI_API_KEY
+    global ALLOWED_USER_ID, GEMINI_API_KEY, SERPER_API_KEY
 
     token = get_bot_token()
     ALLOWED_USER_ID = get_allowed_user_id()
 
-    # Carrega Gemini API key para injetar no opencode
+    # Carrega Gemini API key
     try:
         GEMINI_API_KEY = load_secret("gemini-api-key")
         logger.info("Gemini API key carregada do Secret Manager.")
     except Exception as e:
         GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
         logger.warning("Gemini key não carregada do SM, usando env var: %s", e)
+
+    # Carrega Serper API key (busca no Google)
+    try:
+        SERPER_API_KEY = load_secret("serper-api-key")
+        logger.info("Serper API key carregada do Secret Manager.")
+    except Exception as e:
+        SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+        logger.warning("Serper key não carregada do SM (busca usará dados simulados): %s", e)
 
     if ALLOWED_USER_ID:
         logger.info("Bot restrito ao usuário ID: %s", ALLOWED_USER_ID)
