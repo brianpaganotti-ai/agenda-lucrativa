@@ -290,10 +290,19 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             proc_env["GOOGLE_GENERATIVE_AI_API_KEY"] = GEMINI_API_KEY
             proc_env["GEMINI_API_KEY"] = GEMINI_API_KEY
 
-        # opencode run [message..] — mensagem como palavras separadas
-        # -m google/gemini-2.0-flash — modelo explícito
-        prompt_words = f"/opensquad run {squad_name}".split()
-        cmd = ["opencode", "run", "-m", OPENCODE_MODEL] + prompt_words
+        # Lê o YAML do squad e constrói prompt direto para o OpenCode.
+        # /opensquad run NÃO é um comando CLI — é slash command do Claude Code.
+        # Aqui instruímos o AI diretamente a executar o pipeline do squad.
+        squad_yaml_path = SQUADS_DIR / f"{squad_name}.yaml"
+        prompt = (
+            f"Read the squad definition file at {squad_yaml_path} "
+            f"and execute all pipeline steps defined in it. "
+            f"For each agent step: read the prompt, execute the task using bash commands "
+            f"and available APIs, save intermediate results to /tmp/ as specified, "
+            f"then proceed to the next step. "
+            f"Complete all steps in sequence and report the final result."
+        )
+        cmd = ["opencode", "run", "-m", OPENCODE_MODEL] + prompt.split()
 
         proc = subprocess.Popen(
             cmd,
