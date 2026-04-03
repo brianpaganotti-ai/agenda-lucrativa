@@ -23,7 +23,7 @@ Environment=GOOGLE_CLOUD_PROJECT=project-87c1c65b-10d3-40d5-999
 Environment=GOOGLE_CLOUD_REGION=us-central1
 Environment=GOOGLE_VERTEX_PROJECT=project-87c1c65b-10d3-40d5-999
 Environment=GOOGLE_VERTEX_LOCATION=us-central1
-Environment=OPENCODE_MODEL=google/gemini-2.0-flash
+Environment=OPENCODE_MODEL=google/gemini-2.5-flash-preview-04-17
 
 [Install]
 WantedBy=multi-user.target
