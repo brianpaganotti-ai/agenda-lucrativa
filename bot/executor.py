@@ -60,6 +60,9 @@ class SquadExecutor:
         self.serper_api_key = serper_api_key
         self.telegram_token = telegram_token
         self.telegram_chat_id = telegram_chat_id
+        # Normaliza nome do modelo (remove prefixo "google/", "vertex/", etc.)
+        if "/" in default_model:
+            default_model = default_model.split("/", 1)[1]
         self.default_model = default_model
 
         vertexai.init(project=project_id, location=location)
