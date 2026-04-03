@@ -88,6 +88,14 @@ if [ -n "$SERPER_KEY" ]; then
   upsert_secret "serper-api-key" "$SERPER_KEY"
 fi
 
+# --- Claude (opcional, para provider alternativo) ---
+echo ""
+echo "--- CLAUDE / ANTHROPIC (opcional) ---"
+read -rp "Claude API Key (console.anthropic.com): " CLAUDE_KEY
+if [ -n "$CLAUDE_KEY" ]; then
+  upsert_secret "claude-api-key" "$CLAUDE_KEY"
+fi
+
 echo ""
 echo "========================================"
 echo "  Secrets configurados com sucesso!     "
