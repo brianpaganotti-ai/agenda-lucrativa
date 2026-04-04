@@ -33,11 +33,15 @@ from typing import Optional
 from google.cloud import secretmanager
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
+from collections import deque
+
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 from executor import SquadExecutor
@@ -79,6 +83,15 @@ DEFAULT_PROVIDER_NAME = os.getenv("DEFAULT_PROVIDER", "gemini")
 
 # Rastreamento de uso FAST vs POWERFUL
 USAGE: dict[str, int] = {"fast": 0, "powerful": 0}
+
+# Memória conversacional por chat_id
+CHAT_MEMORY: dict[int, dict] = {}
+_MEMORY_RECENT_MAX  = 6   # 3 trocas = 6 mensagens
+_MEMORY_COMPRESS_AT = 6   # comprimir quando recent encher
+
+# Skills seguras para execução via texto livre (sem efeito colateral)
+# frontend_design, squad_runner, executing_plans, custom → bloqueadas (disparam ações reais)
+_SAFE_SKILLS = {"brainstorm", "write_plan", "autoresearch", "chat"}
 
 # Globals carregados em startup
 ALLOWED_USER_ID = None
@@ -466,6 +479,107 @@ async def callback_checkpoint(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text(f"Erro ao processar checkpoint: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Memória conversacional
+# ---------------------------------------------------------------------------
+def _get_memory(chat_id: int) -> dict:
+    return CHAT_MEMORY.setdefault(
+        chat_id, {"summary": "", "recent": deque(maxlen=_MEMORY_RECENT_MAX)}
+    )
+
+
+def _add_to_memory(chat_id: int, role: str, content: str) -> None:
+    """Adiciona mensagem. NÃO comprime aqui — compressão ocorre após o turno completo."""
+    _get_memory(chat_id)["recent"].append({"role": role, "content": content[:600]})
+
+
+def _maybe_compress_memory(chat_id: int) -> None:
+    """Comprime FAST se recent estiver cheio. Chamado após turno completo."""
+    if not DEFAULT_PROVIDER:
+        return
+    mem = _get_memory(chat_id)
+    if len(mem["recent"]) < _MEMORY_COMPRESS_AT:
+        return
+    to_compress = list(mem["recent"])[:4]
+    mem["recent"] = deque(list(mem["recent"])[4:], maxlen=_MEMORY_RECENT_MAX)
+    block = "\n".join(f"[{m['role']}]: {m['content']}" for m in to_compress)
+    prev  = mem["summary"]
+    prompt = (
+        "Resuma estas trocas em 2-3 frases factuais preservando decisões e contexto de negócio.\n"
+        f"RESUMO ANTERIOR: {prev}\nNOVAS TROCAS:\n{block}\nNOVO RESUMO:"
+    )
+    try:
+        mem["summary"] = DEFAULT_PROVIDER.generate(prompt, tier="fast")[:800]
+    except Exception:
+        mem["summary"] = prev
+
+
+# ---------------------------------------------------------------------------
+# Novos handlers — chat livre
+# ---------------------------------------------------------------------------
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/clear — apaga histórico de conversa do chat_id atual."""
+    if not is_authorized(update):
+        return
+    CHAT_MEMORY.pop(update.effective_chat.id, None)
+    await update.message.reply_text("🧹 Contexto limpo. Nova sessão iniciada.")
+
+
+async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler de texto livre — roteia via Orchestrator com contexto de memória."""
+    if not is_authorized(update):
+        return
+    if not DEFAULT_PROVIDER or not ORCHESTRATOR or not SKILL_LOADER:
+        return
+
+    message  = update.message.text
+    chat_id  = update.effective_chat.id
+    username = update.effective_user.first_name or "usuário"
+    mem      = _get_memory(chat_id)
+
+    await context.bot.send_chat_action(chat_id=str(chat_id), action="typing")
+
+    # 1. Registra user
+    _add_to_memory(chat_id, "user", message)
+
+    # 2. Roteia com contexto
+    route = await asyncio.to_thread(
+        ORCHESTRATOR.route, message,
+        mem.get("summary", ""),
+        list(mem.get("recent", []))
+    )
+    skill_name     = route["skill"]
+    original_skill = skill_name
+    params         = _inject_base_context(route.get("params", {}))
+    params.update({
+        "message":  message,
+        "summary":  mem.get("summary", ""),
+        "recent":   list(mem.get("recent", [])),
+        "username": username,
+    })
+
+    # 3. Proteção: skills com efeito colateral → rebaixa para chat com dica
+    if skill_name not in _SAFE_SKILLS:
+        skill_name = "chat"
+        params["blocked_skill"] = original_skill
+
+    # 4. Executa
+    try:
+        result = await asyncio.to_thread(SKILL_LOADER.execute, skill_name, params, DEFAULT_PROVIDER)
+    except Exception as e:
+        logger.exception("Erro no cmd_chat")
+        await update.message.reply_text(f"❌ {e}")
+        return
+
+    # 5. Registra model
+    _add_to_memory(chat_id, "model", result[:600])
+
+    # 6. Comprime memória APÓS turno completo
+    await asyncio.to_thread(_maybe_compress_memory, chat_id)
+
+    await _safe_send(context.bot, str(chat_id), result)
+
+
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_authorized(update):
         return
@@ -813,9 +927,13 @@ def main() -> None:
     app.add_handler(CommandHandler("providers", cmd_providers))
     app.add_handler(CommandHandler("skills", cmd_skills_list))
     app.add_handler(CommandHandler("usage", cmd_usage))
+    app.add_handler(CommandHandler("clear", cmd_clear))
 
     # Callbacks de botões inline
     app.add_handler(CallbackQueryHandler(callback_checkpoint, pattern=r"^cp:"))
+
+    # Texto livre → agente conversacional (deve ser o último handler registrado)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_chat))
 
     # Job periódico: polling de checkpoints a cada 10s
     app.job_queue.run_repeating(checkpoint_polling, interval=10, first=5)
