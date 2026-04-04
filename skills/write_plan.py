@@ -28,9 +28,10 @@ def _load_best_practices() -> str:
 
 def run(context: dict, provider) -> str:
     goal = context.get("goal", "")
-    audience = context.get("audience", "")
-    if not goal or not audience:
-        return "**Erro:** Parâmetros `goal` e `audience` são obrigatórios."
+    if not goal:
+        return "**Erro:** Parâmetro `goal` é obrigatório."
+
+    audience = context.get("audience", "público geral")
 
     constraints = context.get("constraints", "")
     timeframe = context.get("timeframe", "")

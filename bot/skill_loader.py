@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from bot.providers import ModelProvider
+from providers import ModelProvider
 
 logger = logging.getLogger(__name__)
 
