@@ -1,0 +1,29 @@
+[Unit]
+Description=Agenda Lucrativa — Flask API (webhooks, health, agendamentos)
+Documentation=https://github.com/brianpaganotti-ai/agenda-lucrativa
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/nexus/app
+ExecStart=/opt/nexus/venv/bin/gunicorn \
+    --bind 0.0.0.0:8080 \
+    --workers 2 \
+    --timeout 120 \
+    --access-logfile /opt/nexus/logs/api-access.log \
+    --error-logfile /opt/nexus/logs/api-error.log \
+    app:app
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agenda-api
+
+Environment=PROJECT_ID=project-87c1c65b-10d3-40d5-999
+Environment=NEXUS_DIR=/opt/nexus
+
+[Install]
+WantedBy=multi-user.target

@@ -1,20 +1,36 @@
-# Python gitignore
+# Python
+venv/
+__pycache__/
+*.pyc
+instance/
+.env
 
-# Virtual environments
-venv/  
+# Node
+node_modules/
+.npm/
 
-# Python bytecode
-__pycache__/  
-*.pyc  
+# OpenSquad (runtime — nunca commitar)
+_opensquad/
+squads/output/
 
-# Environment variables
-.env  
-
-# macOS files
-.DS_Store  
-
-# Instance folder
-instance/  
-
-# Key files
+# Credenciais GCP (nunca commitar)
+*.json
+!config/opencode.json
+!config/providers.json
 key*
+.gcloud/agenda-lucrativa-key.json
+
+# Logs e outputs gerados na VM
+logs/
+*.log
+/tmp/leads_*.json
+/tmp/mensagens_*.json
+/tmp/relatorio_*.json
+/tmp/conteudo_*.json
+/tmp/tendencias_*.json
+
+# Conteúdo gerado pelos squads (local)
+conteudo/
+
+# macOS
+.DS_Store

@@ -1,0 +1,115 @@
+name: conteudo-instagram
+description: >
+  Squad de criação de conteúdo para Instagram.
+  Pesquisa tendências do segmento, cria legenda, hashtags e roteiro
+  de Reels. Usa checkpoint para aprovação antes de salvar o conteúdo
+  final — você revisa e aprova via Telegram.
+
+checkpoint: true   # pausa para aprovação antes do step final
+
+variables:
+  - name: TEMA
+    description: "Tema ou produto/serviço para o conteúdo"
+    default: "dicas de produtividade para pequenos negócios"
+  - name: TOM
+    description: "Tom da comunicação (educativo, inspirador, divertido, vendas)"
+    default: "educativo"
+  - name: FORMATO
+    description: "Formato do conteúdo (carrossel, reels, feed)"
+    default: "carrossel"
+
+pipeline:
+
+  - id: pesquisador
+    name: "Pesquisador de Tendências"
+    model: gemini-2.5-flash
+    skill: serper-search
+    prompt: >
+      Pesquise no Google e Instagram as tendências atuais sobre "{{TEMA}}".
+      Foque em:
+      - Posts virais recentes sobre o tema (últimos 30 dias)
+      - Hashtags mais usadas (mínimo 15, máximo 30)
+      - Formatos que estão performando melhor agora
+      - Ganchos (hooks) de texto que geram mais engajamento
+      Salve em tmp/tendencias_instagram.json
+
+  - id: criador
+    name: "Criador de Conteúdo"
+    model: gemini-2.5-flash
+    depends_on: [pesquisador]
+    prompt: >
+      Com base em tmp/tendencias_instagram.json, crie conteúdo para Instagram:
+
+      FORMATO: {{FORMATO}}
+      TOM: {{TOM}}
+      TEMA: {{TEMA}}
+
+      Entregue:
+      1. LEGENDA: texto completo para o post, com hook na primeira linha,
+         desenvolvimento em 3-5 parágrafos, CTA no final. Máximo 2200 caracteres.
+      2. HASHTAGS: lista de 20-25 hashtags relevantes (mix de grandes, médias e nicho)
+      3. ROTEIRO_VISUAL: para cada slide do carrossel (ou cena do Reels),
+         descreva o que deve aparecer visualmente (texto na tela, imagem, ação)
+      4. HOOK_ALTERNATIVO: 3 variações do gancho inicial para teste A/B
+
+      Salve em tmp/conteudo_rascunho.json
+
+  - id: revisor
+    name: "Revisor de Qualidade"
+    model: gemini-2.5-flash
+    depends_on: [criador]
+    prompt: >
+      Revise tmp/conteudo_rascunho.json com olhar crítico:
+      - A legenda tem um hook forte na primeira linha?
+      - O CTA é específico e incentiva ação?
+      - As hashtags são relevantes (sem spam tags genéricas)?
+      - O roteiro visual é executável com celular e Canva?
+      - O tom está consistente com "{{TOM}}"?
+      Corrija os pontos fracos e salve a versão revisada em tmp/conteudo_revisado.json
+      Adicione um campo "pontuacao_qualidade" (0-10) com justificativa.
+
+  # ═══ CHECKPOINT — você revisa antes de salvar ═══
+  - id: aprovacao
+    name: "Aprovação do Conteúdo"
+    checkpoint: true
+    depends_on: [revisor]
+    prompt: >
+      Leia tmp/conteudo_revisado.json e apresente um preview formatado
+      para aprovação do usuário:
+
+      📸 **PREVIEW DO CONTEÚDO**
+      ─────────────────────────
+      🎯 Tema: {{TEMA}} | Formato: {{FORMATO}}
+      ⭐ Pontuação de qualidade: <pontuacao>
+
+      📝 LEGENDA:
+      <legenda completa>
+
+      #️⃣ HASHTAGS:
+      <hashtags>
+
+      🎬 ROTEIRO VISUAL:
+      <roteiro resumido>
+
+      Aguarde aprovação do usuário antes de continuar.
+
+  - id: finalizador
+    name: "Finalizador"
+    model: gemini-2.5-flash
+    depends_on: [aprovacao]
+    prompt: >
+      O usuário aprovou o conteúdo. Salve a versão final em:
+      /opt/nexus/conteudo/instagram/{{TEMA | slugify}}_{{data_hoje}}.json
+
+      Crie também um arquivo .txt com apenas a legenda + hashtags,
+      pronto para copiar e colar no Instagram:
+      /opt/nexus/conteudo/instagram/{{TEMA | slugify}}_{{data_hoje}}_post.txt
+
+  - id: notificador
+    name: "Notificador"
+    model: gemini-2.5-flash
+    depends_on: [finalizador]
+    skill: telegram-notify
+    prompt: >
+      Notifique o usuário que o conteúdo foi salvo com sucesso.
+      Inclua o caminho do arquivo e um resumo do que foi criado.

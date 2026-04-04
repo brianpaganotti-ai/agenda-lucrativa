@@ -1,0 +1,21 @@
+{
+  "providers": {
+    "gemini": {
+      "type": "gemini",
+      "models": {
+        "fast": "gemini-2.5-flash",
+        "powerful": "gemini-2.5-flash"
+      },
+      "enabled": true
+    },
+    "claude": {
+      "type": "claude",
+      "models": {
+        "fast": "claude-haiku-4-5-20251001",
+        "powerful": "claude-sonnet-4-6"
+      },
+      "enabled": false
+    }
+  },
+  "default": "gemini"
+}

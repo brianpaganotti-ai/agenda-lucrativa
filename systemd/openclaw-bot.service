@@ -1,0 +1,31 @@
+[Unit]
+Description=OpenClaw — Telegram Bot para controle do OpenSquad
+Documentation=https://github.com/brianpaganotti-ai/agenda-lucrativa
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+WorkingDirectory=/opt/nexus
+ExecStart=/opt/nexus/venv/bin/python bot/telegram_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openclaw-bot
+ReadWritePaths=/opt/nexus
+
+# Variáveis de ambiente
+Environment=NEXUS_DIR=/opt/nexus
+Environment=PROJECT_ID=project-87c1c65b-10d3-40d5-999
+Environment=GOOGLE_CLOUD_PROJECT=project-87c1c65b-10d3-40d5-999
+Environment=GOOGLE_CLOUD_REGION=us-central1
+Environment=GOOGLE_VERTEX_PROJECT=project-87c1c65b-10d3-40d5-999
+Environment=GOOGLE_VERTEX_LOCATION=us-central1
+Environment=OPENCODE_MODEL=gemini-2.5-flash
+Environment=DEFAULT_PROVIDER=gemini
+
+[Install]
+WantedBy=multi-user.target
